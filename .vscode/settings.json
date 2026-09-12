@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.ino": "cpp",
+        "lvgl.h": "c"
+    },
+    "cmake.sourceDirectory": "C:/Users/daabr/source/repos/Ultimate_Gauge_Board_PIO/pio/packages/framework-arduinoespressif32"
+}
