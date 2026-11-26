@@ -2,12 +2,23 @@
 
 A PlatformIO project for the Ultimate Gauge Board by Garage Tinkering, running on an ESP32-S3
 with a round ST7701 display. It renders a gauge (styled after a Need for Speed Underground 2
-gauge), performs a needle sweep on boot, and then tracks a coolant temperature value pulled in
-over CAN.
+gauge), performs a needle sweep on boot, and then tracks a value pulled in over CAN.
 
-A compile-time simulation mode (`SIMULATE_CAN_DATA` in `src/main.cpp`) can feed randomized,
-plausible coolant temp readings instead, so the display can be exercised on the bench without a
-live CAN bus.
+A compile-time simulation mode (`SIMULATE_CAN_DATA` in `src/main.cpp`, currently enabled) feeds
+randomized readings instead, so the display can be exercised on the bench without a live CAN bus.
+
+## Gauge types
+
+Each gauge is its own PlatformIO environment. Their ranges, colors, captions and CAN settings are
+in `include/gauge_config.h`.
+
+| Environment              | Range        | Real CAN data        |
+|--------------------------|--------------|----------------------|
+| `coolant_temp` (default) | -20 to 140 C | ID `0x551`           |
+| `oil_temp`               | 0 to 160 C   | Not yet defined      |
+| `oil_pressure`           | 0 to 100 PSI | Not yet defined      |
+
+Gauges without a CAN definition only build with simulation enabled.
 
 ## Dependencies
 
@@ -33,9 +44,10 @@ live CAN bus.
 pio run
 ```
 
-Builds the firmware for the `esp32-s3-devkitc1-n8r8` environment. Output lands in
-`.pio/build/esp32-s3-devkitc1-n8r8/`, including `firmware.factory.bin` (the combined image with
-bootloader + partitions + app, ready to flash from scratch).
+Builds the default `coolant_temp` firmware. Select another gauge with `-e`, for example
+`pio run -e oil_temp`. Output lands in `.pio/build/<environment>/`, including
+`firmware.factory.bin` (the combined image with bootloader + partitions + app, ready to flash from
+scratch).
 
 ## Uploading to a device
 
@@ -44,6 +56,8 @@ With the board connected over USB:
 ```
 pio run --target upload
 ```
+
+Add `-e oil_temp` or `-e oil_pressure` to flash a different gauge.
 
 PlatformIO auto-detects the serial port. If you have multiple serial devices connected and it
 picks the wrong one:

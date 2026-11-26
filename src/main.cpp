@@ -4,6 +4,7 @@
 #include "LVGL_Driver.h"
 #include "I2C_Driver.h"
 #include "GaugeLogic.h"
+#include "gauge_config.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -32,29 +33,28 @@ struct_gauge_data GaugeData;
 
 // CONTROL CONSTANTS
 const int AVERAGE_VALUES      = 10;
-const int SCALE_MIN           = -200;  // -20.0 degC (values are in tenths, see get_moving_average)
-const int SCALE_MAX           = 1400;  // 140.0 degC
-const int SCALE_TICKS_COUNT   = 9;
+const int SCALE_MIN           = GAUGE.min_value * 10;  // tenths, see get_moving_average
+const int SCALE_MAX           = GAUGE.max_value * 10;
+const int SCALE_TICKS_COUNT   = GAUGE.tick_count;
 
 const bool TESTING            = false; // set to true for needle sweep testing
-const bool SIMULATE_CAN_DATA  = true;  // set to true to feed random coolant temp values instead of real CAN data
+const bool SIMULATE_CAN_DATA  = true;  // set to true to feed random values instead of real CAN data
 
-// bounds for the simulated coolant temp feed, in whole degrees C
-const int SIM_TEMP_MIN        = -20;
-const int SIM_TEMP_MAX        = 140;
+static_assert(SIMULATE_CAN_DATA || GAUGE.can_id != 0,
+              "This gauge has no CAN signal defined yet; add it in gauge_config.h or enable simulation");
 
 lv_obj_t *scale_ticks[SCALE_TICKS_COUNT];
 
-// numeric labels for each tick, in whole degrees C, derived from SCALE_MIN/SCALE_MAX
+// numeric labels for each tick, in whole units, derived from SCALE_MIN/SCALE_MAX
 // (which are in tenths) so they stay correct if the range ever changes
 static char scale_label_bufs[SCALE_TICKS_COUNT][8];
 static const char *scale_label_src[SCALE_TICKS_COUNT + 1]; // NULL-terminated, per lv_scale_set_text_src
 
 void init_scale_labels(void) {
   for (int i = 0; i < SCALE_TICKS_COUNT; i++) {
-    int tenths_c = SCALE_MIN + (i * (SCALE_MAX - SCALE_MIN)) / (SCALE_TICKS_COUNT - 1);
-    int whole_c = tenths_c >= 0 ? (tenths_c + 5) / 10 : -((-tenths_c + 5) / 10); // round to nearest whole degree
-    snprintf(scale_label_bufs[i], sizeof(scale_label_bufs[i]), "%d", whole_c);
+    int tenths = SCALE_MIN + (i * (SCALE_MAX - SCALE_MIN)) / (SCALE_TICKS_COUNT - 1);
+    int whole = tenths >= 0 ? (tenths + 5) / 10 : -((-tenths + 5) / 10); // round to nearest whole unit
+    snprintf(scale_label_bufs[i], sizeof(scale_label_bufs[i]), "%d", whole);
     scale_label_src[i] = scale_label_bufs[i];
   }
   scale_label_src[SCALE_TICKS_COUNT] = NULL;
@@ -139,7 +139,7 @@ void needle_to_current(lv_anim_t *a) {
   lv_anim_set_exec_cb(&anim_scale_img, set_needle_img_value);
   lv_anim_set_duration(&anim_scale_img, 1000);  
   lv_anim_path_ease_out(&anim_scale_img);
-  lv_anim_set_values(&anim_scale_img, -20, receiving_data ? scale_moving_average : 0);
+  lv_anim_set_values(&anim_scale_img, SCALE_MIN, receiving_data ? previous_scale_value : SCALE_MIN);
   lv_anim_set_ready_cb(&anim_scale_img, needle_sweep_complete);
   lv_anim_start(&anim_scale_img);
 }
@@ -155,7 +155,7 @@ void needle_sweep() {
     lv_anim_set_duration(&anim_scale_img, 10000);
     lv_anim_set_repeat_count(&anim_scale_img, LV_ANIM_REPEAT_INFINITE);
     lv_anim_set_playback_duration(&anim_scale_img, 10000);
-    lv_anim_set_values(&anim_scale_img, -20, 140);
+    lv_anim_set_values(&anim_scale_img, SCALE_MIN, SCALE_MAX);
     lv_anim_start(&anim_scale_img);
   } else {
     lv_anim_t anim_scale_img;
@@ -245,19 +245,27 @@ void main_scr_ui(void) {
   lv_obj_set_style_image_recolor_opa(needle_img, 255, 0);
   lv_obj_set_style_image_recolor(needle_img, lv_color_make(255,255,255), 0); // TO DO - replace with color from CAN
 
-  // coolant temp icon, labels what this gauge measures (droplet = coolant fluid)
-  lv_obj_t *coolant_icon = lv_label_create(main_scr);
-  lv_label_set_text(coolant_icon, LV_SYMBOL_TINT);
-  lv_obj_set_style_text_font(coolant_icon, &lv_font_montserrat_32, 0);
-  lv_obj_set_style_text_color(coolant_icon, lv_color_make(30, 130, 210), 0); // blue, reads as "coolant"
-  lv_obj_set_style_transform_scale_x(coolant_icon, (int32_t)(LV_SCALE_NONE * 3.0f), 0);
-  lv_obj_set_style_transform_scale_y(coolant_icon, (int32_t)(LV_SCALE_NONE * 3.0f), 0);
+  // fluid icon, colored per gauge type
+  lv_color_t icon_color = lv_color_make(GAUGE.icon_red, GAUGE.icon_green, GAUGE.icon_blue);
+  lv_obj_t *gauge_icon = lv_label_create(main_scr);
+  lv_label_set_text(gauge_icon, LV_SYMBOL_TINT);
+  lv_obj_set_style_text_font(gauge_icon, &lv_font_montserrat_32, 0);
+  lv_obj_set_style_text_color(gauge_icon, icon_color, 0);
+  lv_obj_set_style_transform_scale_x(gauge_icon, (int32_t)(LV_SCALE_NONE * 3.0f), 0);
+  lv_obj_set_style_transform_scale_y(gauge_icon, (int32_t)(LV_SCALE_NONE * 3.0f), 0);
   // scaling pivots around the transform origin, which defaults to the object's
   // top-left corner rather than its center - pin it to center so zooming
   // doesn't visually drift the icon away from LV_ALIGN_CENTER
-  lv_obj_set_style_transform_pivot_x(coolant_icon, lv_pct(50), 0);
-  lv_obj_set_style_transform_pivot_y(coolant_icon, lv_pct(50), 0);
-  lv_obj_align(coolant_icon, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_transform_pivot_x(gauge_icon, lv_pct(50), 0);
+  lv_obj_set_style_transform_pivot_y(gauge_icon, lv_pct(50), 0);
+  lv_obj_align(gauge_icon, LV_ALIGN_CENTER, 0, 0);
+
+  // caption below the icon, since the gauges share the same droplet glyph
+  lv_obj_t *caption = lv_label_create(main_scr);
+  lv_label_set_text(caption, GAUGE.caption);
+  lv_obj_set_style_text_font(caption, &lv_font_montserrat_32, 0);
+  lv_obj_set_style_text_color(caption, icon_color, 0);
+  lv_obj_align(caption, LV_ALIGN_CENTER, 0, 90);
 }
 
 // build the screens
@@ -291,19 +299,15 @@ void receive_can_task(void *arg) {
 
 void process_can_queue_task(void *arg) {
   twai_message_t message;
-  int last_temp = GaugeData.scale_value;
+  int last_value = GaugeData.scale_value;
   while (1) {
     if (xQueueReceive(canMsgQueue, &message, pdMS_TO_TICKS(1)) == pdPASS) {
-      switch (message.identifier) {
-        case 0x551:
-          GaugeData.scale_value = process_scale_value(message.data);
-          if (GaugeData.scale_value != last_temp) {
-            data_ready = true;
-            last_temp = GaugeData.scale_value;
-          }
-          break;
-        default:
-          break;
+      if (GAUGE.decode != nullptr && message.identifier == GAUGE.can_id) {
+        GaugeData.scale_value = GAUGE.decode(message.data);
+        if (GaugeData.scale_value != last_value) {
+          data_ready = true;
+          last_value = GaugeData.scale_value;
+        }
       }
       receiving_data = true;
     }
@@ -311,18 +315,17 @@ void process_can_queue_task(void *arg) {
   }
 }
 
-// generates plausible coolant temp readings (gradual drift with small jitter,
+// generates readings across the gauge's range (gradual drift with small jitter,
 // rather than jumping randomly) so the gauge can be exercised on the bench
 // without a live CAN bus
 void simulate_can_task(void *arg) {
-  int current = 20; // start near a typical cold-start ambient temp
-  int target = 20;
+  int current = (GAUGE.min_value + GAUGE.max_value) / 2;
+  int target = current;
 
   while (1) {
-    // occasionally pick a new target temp to drift toward, simulating
-    // warm-up, thermostat cycling, and cooldown
+    // occasionally pick a new target value to drift toward
     if ((esp_random() % 100) < 5) {
-      target = SIM_TEMP_MIN + (esp_random() % (SIM_TEMP_MAX - SIM_TEMP_MIN + 1));
+      target = GAUGE.min_value + (int)(esp_random() % (GAUGE.max_value - GAUGE.min_value + 1));
     }
 
     // step current value toward the target, plus a little jitter, so the
@@ -332,8 +335,8 @@ void simulate_can_task(void *arg) {
     int jitter = (int)(esp_random() % 3) - 1; // -1, 0, or 1
     current += step + jitter;
 
-    if (current < SIM_TEMP_MIN) current = SIM_TEMP_MIN;
-    if (current > SIM_TEMP_MAX) current = SIM_TEMP_MAX;
+    if (current < GAUGE.min_value) current = GAUGE.min_value;
+    if (current > GAUGE.max_value) current = GAUGE.max_value;
 
     if (current != GaugeData.scale_value) {
       GaugeData.scale_value = current;
