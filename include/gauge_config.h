@@ -24,11 +24,10 @@ struct GaugeConfig {
   #error "GAUGE_TYPE is not defined; build one of the gauge environments in platformio.ini"
 #elif GAUGE_TYPE == GAUGE_COOLANT_TEMP
 // degrees C
-constexpr GaugeConfig GAUGE = {"COOLANT", -20, 140, 9, 30, 130, 210, 0x551, process_scale_value};
+constexpr GaugeConfig GAUGE = {"COOLANT", -20, 140, 9, 30, 130, 210, 0x345, process_coolant_temp_value};
 #elif GAUGE_TYPE == GAUGE_OIL_TEMP
 // degrees C
-// PLACEHOLDER CAN ID and format for bench testing, not from a real vehicle
-constexpr GaugeConfig GAUGE = {"OIL TEMP", 0, 160, 9, 191, 128, 0, 0x600, process_scale_value};
+constexpr GaugeConfig GAUGE = {"OIL TEMP", 0, 160, 9, 191, 128, 0, 0x345, process_oil_temp_value};
 #elif GAUGE_TYPE == GAUGE_OIL_PRESSURE
 // PSI
 // PLACEHOLDER CAN ID and format for bench testing, not from a real vehicle

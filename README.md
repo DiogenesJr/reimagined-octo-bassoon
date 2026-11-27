@@ -14,13 +14,16 @@ in `include/gauge_config.h`.
 
 | Environment              | Range        | CAN ID                |
 |--------------------------|--------------|-----------------------|
-| `coolant_temp` (default) | -20 to 140 C | `0x551`               |
-| `oil_temp`               | 0 to 160 C   | `0x600` (placeholder) |
+| `coolant_temp` (default) | -20 to 140 C | `0x345`               |
+| `oil_temp`               | 0 to 160 C   | `0x345`               |
 | `oil_pressure`           | 0 to 100 PSI | `0x601` (placeholder) |
 
+The temperature message is the one used by the 2022+ Toyota GR86 / Subaru BRZ. The oil pressure
+message is a placeholder for bench testing and won't match a real vehicle.
+
 These environments run on simulated data. Add `_can` to the name (for example `oil_temp_can`) to
-read the CAN bus instead. The placeholder messages are for bench testing and won't match a real
-vehicle. To send test messages from a PC, see [tools/can_sim](tools/can_sim/README.md).
+read the CAN bus instead. To send test messages from a PC, see
+[tools/can_sim](tools/can_sim/README.md).
 
 ## Dependencies
 

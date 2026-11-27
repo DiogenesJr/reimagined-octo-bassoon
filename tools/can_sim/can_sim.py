@@ -4,6 +4,7 @@ For bench use only. Do not run this against a bus connected to a vehicle.
 """
 
 import argparse
+import csv
 import os
 import sys
 import time
@@ -26,10 +27,23 @@ class Signal:
     encode: Callable[[int], bytes]
 
 
-def encode_temperature(deg_c: int) -> bytes:
-    # byte 0 = deg C + 40, matching process_scale_value in lib/GaugeLogic.
-    # The gauge ignores the other bytes.
-    return bytes([deg_c + 40, 0, 0, 0, 0, 0, 0, 0])
+# Message 0x345 carries both temperatures: byte 3 is oil, byte 4 is coolant, each
+# deg C + 40. The one not being tested is held at a normal operating value.
+TEMPERATURE_ID = 0x345
+NORMAL_OIL_C = 90
+NORMAL_COOLANT_C = 88
+
+
+def encode_temperatures(oil_c: int, coolant_c: int) -> bytes:
+    return bytes([0, 0, 0, oil_c + 40, coolant_c + 40, 0, 0, 0])
+
+
+def encode_oil_temp(deg_c: int) -> bytes:
+    return encode_temperatures(deg_c, NORMAL_COOLANT_C)
+
+
+def encode_coolant_temp(deg_c: int) -> bytes:
+    return encode_temperatures(NORMAL_OIL_C, deg_c)
 
 
 def encode_oil_pressure(psi: int) -> bytes:
@@ -41,7 +55,7 @@ def encode_oil_pressure(psi: int) -> bytes:
 # with include/gauge_config.h.
 SIGNALS = {
     "coolant_temp": Signal(
-        can_id=0x551,
+        can_id=TEMPERATURE_ID,
         min_value=-20,
         max_value=140,
         hold_value=90,
@@ -57,11 +71,10 @@ SIGNALS = {
             (100, 91),  # radiator fan catches up
             (110, 90),
         ),
-        encode=encode_temperature,
+        encode=encode_coolant_temp,
     ),
-    # PLACEHOLDER message, not from a real vehicle
     "oil_temp": Signal(
-        can_id=0x600,
+        can_id=TEMPERATURE_ID,
         min_value=0,
         max_value=160,
         hold_value=100,
@@ -76,7 +89,7 @@ SIGNALS = {
             (100, 105),
             (110, 100),
         ),
-        encode=encode_temperature,
+        encode=encode_oil_temp,
     ),
     # PLACEHOLDER message, not from a real vehicle
     "oil_pressure": Signal(
@@ -173,35 +186,85 @@ def send(args) -> int:
         return 2
 
     values = scenario_values(signal, args.scenario, args.period, hold, args.duration)
-    report_every = max(1, round(1.0 / args.period))
+    schedule = ((i * args.period, signal.encode(value), f"value={value:4d}")
+                for i, value in enumerate(values))
 
     if args.dry_run:
-        for i, value in enumerate(values):
-            if i % report_every == 0:
-                data = signal.encode(value).hex(" ").upper()
-                print(f"t={i * args.period:6.1f}s  value={value:4d}  0x{signal.can_id:03X}  {data}")
-            if args.scenario == "hold" and args.duration is None and i >= 2 * report_every:
-                break
-        return 0
+        endless = args.scenario == "hold" and args.duration is None
+        return preview(signal.can_id, schedule, every=1.0, stop_after=2.0 if endless else None)
 
+    print(f"Sending {args.gauge} '{args.scenario}' on 0x{signal.can_id:03X}. Ctrl+C to stop.")
+    return transmit(args.bitrate, signal.can_id, schedule)
+
+
+def read_log(path: Path) -> list:
+    """Return (seconds, data) for each temperature message in a SavvyCAN CSV log."""
+    frames = []
+    with open(path, newline="") as handle:
+        for row in csv.DictReader(handle):
+            if int(row["ID"], 16) != TEMPERATURE_ID or row["Extended"] != "false":
+                continue
+            data = bytes(int(row[f"D{i}"], 16) for i in range(1, int(row["LEN"]) + 1))
+            if len(data) >= 5:  # long enough to hold both temperatures
+                frames.append((int(row["Time Stamp"]) / 1e6, data))
+    return [(stamp - frames[0][0], data) for stamp, data in frames]
+
+
+def replay(args) -> int:
+    try:
+        frames = read_log(args.log)
+    except (OSError, KeyError, ValueError, TypeError) as error:
+        print(f"Could not read {args.log} as a SavvyCAN CSV log: {error!r}", file=sys.stderr)
+        return 2
+    if not frames:
+        print(f"No 0x{TEMPERATURE_ID:03X} messages in {args.log}", file=sys.stderr)
+        return 2
+
+    schedule = ((seconds / args.speed, data,
+                 f"log={seconds:6.1f}s  oil={data[3] - 40:4d}  coolant={data[4] - 40:4d}")
+                for seconds, data in frames)
+
+    print(f"{len(frames)} messages on 0x{TEMPERATURE_ID:03X}, "
+          f"{frames[-1][0] / args.speed:.0f}s at {args.speed:g}x speed.")
+    if args.dry_run:
+        return preview(TEMPERATURE_ID, schedule, every=30.0 / args.speed)
+
+    print("Ctrl+C to stop.")
+    return transmit(args.bitrate, TEMPERATURE_ID, schedule)
+
+
+def preview(can_id: int, schedule, every: float, stop_after: float = None) -> int:
+    """Print a sample of the messages without using the adapter."""
+    next_report = 0.0
+    for seconds, data, label in schedule:
+        if seconds >= next_report - 1e-6:
+            print(f"t={seconds:6.1f}s  {label}  0x{can_id:03X}  {data.hex(' ').upper()}")
+            next_report += every
+        if stop_after is not None and seconds >= stop_after:
+            break
+    return 0
+
+
+def transmit(bitrate: int, can_id: int, schedule) -> int:
+    """Send (seconds from start, data, label) entries at their scheduled times."""
     sent = acked = 0
     warned = False
-    with open_bus(args.bitrate) as bus:
-        print(f"Sending {args.gauge} '{args.scenario}' on 0x{signal.can_id:03X}. Ctrl+C to stop.")
+    next_report = 0.0
+    with open_bus(bitrate) as bus:
         start = time.monotonic()
         try:
-            for i, value in enumerate(values):
-                message = can.Message(arbitration_id=signal.can_id,
-                                      data=signal.encode(value), is_extended_id=False)
-                bus.send(message)
+            for seconds, data, label in schedule:
+                acked += count_acks(bus, can_id, start + seconds)
+                bus.send(can.Message(arbitration_id=can_id, data=data, is_extended_id=False))
                 sent += 1
-                acked += count_acks(bus, signal.can_id, start + (i + 1) * args.period)
-                if i % report_every == 0:
-                    print(f"t={i * args.period:6.1f}s  value={value:4d}  sent={sent}  acked={acked}")
-                if not warned and acked == 0 and time.monotonic() - start > NO_ACK_WARNING_SECONDS:
+                if seconds >= next_report - 1e-6:
+                    print(f"t={seconds:6.1f}s  {label}  sent={sent}  acked={acked}")
+                    next_report += 1.0
+                if not warned and acked == 0 and seconds > NO_ACK_WARNING_SECONDS:
                     print("Warning: nothing is acknowledging. Check wiring, termination, "
                           "bit rate and that the gauge is powered.")
                     warned = True
+            acked += count_acks(bus, can_id, time.monotonic() + 0.2)  # last confirmations
         except KeyboardInterrupt:
             print()
         except can.CanOperationError as error:
@@ -217,6 +280,13 @@ def positive_float(text: str) -> float:
     value = float(text)
     if value <= 0:
         raise argparse.ArgumentTypeError("must be greater than 0")
+    return value
+
+
+def replay_speed(text: str) -> float:
+    value = positive_float(text)
+    if value > 10:
+        raise argparse.ArgumentTypeError("must be 10 or less")
     return value
 
 
@@ -239,9 +309,18 @@ def main() -> int:
     send_parser.add_argument("--dry-run", action="store_true",
                              help="print messages without using the adapter")
 
+    replay_parser = commands.add_parser(
+        "replay", help="replay the temperature messages from a SavvyCAN CSV log")
+    replay_parser.add_argument("log", type=Path)
+    replay_parser.add_argument("--speed", type=replay_speed, default=1.0,
+                               help="playback speed, up to 10 (default: 1)")
+    replay_parser.add_argument("--dry-run", action="store_true",
+                               help="print messages without using the adapter")
+
     args = parser.parse_args()
+    run = {"check": check, "send": send, "replay": replay}[args.command]
     try:
-        return check(args) if args.command == "check" else send(args)
+        return run(args)
     except can.CanInitializationError as error:
         print(f"Could not open the adapter: {error}", file=sys.stderr)
         return 1

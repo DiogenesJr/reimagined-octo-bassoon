@@ -32,10 +32,12 @@ void reset_moving_average(void) {
     sum = 0;
 }
 
-int process_scale_value(const uint8_t *byte_data) {
-    // byte 0, modifier -40 (Nissan specific)
-    int byte_pos = 0;
-    return byte_data[byte_pos] - 40;
+int process_oil_temp_value(const uint8_t *byte_data) {
+    return byte_data[3] - 40;
+}
+
+int process_coolant_temp_value(const uint8_t *byte_data) {
+    return byte_data[4] - 40;
 }
 
 int process_oil_pressure_value(const uint8_t *byte_data) {

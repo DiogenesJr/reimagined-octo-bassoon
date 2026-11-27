@@ -31,14 +31,21 @@ void test_moving_average_window_slides_after_ten_samples(void) {
     TEST_ASSERT_EQUAL_INT(110, result);
 }
 
-void test_process_scale_value_applies_nissan_minus_40_offset(void) {
-    uint8_t data[8] = {40, 0, 0, 0, 0, 0, 0, 0};
-    TEST_ASSERT_EQUAL_INT(0, process_scale_value(data));
+// first 0x345 frame of a log recorded from the car, at a cold start
+static const uint8_t cold_start_0x345[8] = {0x62, 0x0F, 0xC6, 0x41, 0x42, 0x32, 0xD7, 0xB9};
+
+void test_process_oil_temp_value_reads_byte_three(void) {
+    TEST_ASSERT_EQUAL_INT(25, process_oil_temp_value(cold_start_0x345));
 }
 
-void test_process_scale_value_can_go_negative(void) {
-    uint8_t data[8] = {10, 0, 0, 0, 0, 0, 0, 0};
-    TEST_ASSERT_EQUAL_INT(-30, process_scale_value(data));
+void test_process_coolant_temp_value_reads_byte_four(void) {
+    TEST_ASSERT_EQUAL_INT(26, process_coolant_temp_value(cold_start_0x345));
+}
+
+void test_process_temperature_values_can_go_negative(void) {
+    uint8_t data[8] = {0, 0, 0, 10, 20, 0, 0, 0};
+    TEST_ASSERT_EQUAL_INT(-30, process_oil_temp_value(data));
+    TEST_ASSERT_EQUAL_INT(-20, process_coolant_temp_value(data));
 }
 
 void test_process_oil_pressure_value_reads_byte_zero_unsigned(void) {
@@ -51,8 +58,9 @@ int main(int argc, char **argv) {
     RUN_TEST(test_moving_average_of_constant_value_converges_to_that_value_x10);
     RUN_TEST(test_moving_average_first_reading_has_no_history_to_average_against);
     RUN_TEST(test_moving_average_window_slides_after_ten_samples);
-    RUN_TEST(test_process_scale_value_applies_nissan_minus_40_offset);
-    RUN_TEST(test_process_scale_value_can_go_negative);
+    RUN_TEST(test_process_oil_temp_value_reads_byte_three);
+    RUN_TEST(test_process_coolant_temp_value_reads_byte_four);
+    RUN_TEST(test_process_temperature_values_can_go_negative);
     RUN_TEST(test_process_oil_pressure_value_reads_byte_zero_unsigned);
     return UNITY_END();
 }

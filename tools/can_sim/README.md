@@ -30,14 +30,16 @@ tools\can_sim\.venv\Scripts\python.exe tools\can_sim\can_sim.py check
 
 Each gauge has a firmware environment that listens to the bus:
 
-| Gauge        | Environment        | CAN ID  | First byte | Source          |
+| Gauge        | Environment        | CAN ID  | Encoding   | Source          |
 |--------------|--------------------|---------|------------|-----------------|
-| Coolant temp | `coolant_temp_can` | `0x551` | °C + 40    | Nissan-specific |
-| Oil temp     | `oil_temp_can`     | `0x600` | °C + 40    | **Placeholder** |
+| Coolant temp | `coolant_temp_can` | `0x345` | °C + 40    | GR86 / BRZ      |
+| Oil temp     | `oil_temp_can`     | `0x345` | °C + 40    | GR86 / BRZ      |
 | Oil pressure | `oil_pressure_can` | `0x601` | PSI        | **Placeholder** |
 
-The placeholder messages are for bench testing only. Replace them with your vehicle's real
-definitions before expecting a reading from a car.
+Both temperatures travel in one message: the fourth byte is oil and the fifth is coolant. The
+definition comes from the [ft86 CAN notes](https://github.com/timurrrr/ft86/blob/main/can_bus/gen2.md)
+for the 2022+ Toyota GR86 / Subaru BRZ. For oil pressure, the table shows the first byte; it is a
+placeholder for bench testing and won't read anything from a car.
 
 Flash one, for example:
 
@@ -65,6 +67,18 @@ Add `--dry-run` to preview messages without the adapter. Messages go out every 0
 
 `acked` in the output counts messages the adapter reports as sent. If it stays at 0, check wiring,
 termination, bit rate and gauge power.
+
+## Replaying a log from the car
+
+`replay` sends the recorded `0x345` messages from a SavvyCAN CSV export with their original timing,
+which exercises both temperature gauges. It skips every other message, so it does not simulate a
+busy bus, and it cannot test oil pressure.
+
+```
+tools\can_sim\.venv\Scripts\python.exe tools\can_sim\can_sim.py replay path\to\log.csv --speed 5
+```
+
+`--speed` goes up to 10. Add `--dry-run` to preview.
 
 ## Adding a gauge
 
