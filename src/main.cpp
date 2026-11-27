@@ -37,8 +37,14 @@ const int SCALE_MIN           = GAUGE.min_value * 10;  // tenths, see get_moving
 const int SCALE_MAX           = GAUGE.max_value * 10;
 const int SCALE_TICKS_COUNT   = GAUGE.tick_count;
 
+const uint32_t GAUGE_UPDATE_MS = 100;  // how often the latest reading is sampled and drawn
+
 const bool TESTING            = false; // set to true for needle sweep testing
-const bool SIMULATE_CAN_DATA  = true;  // set to true to feed random values instead of real CAN data
+#ifdef USE_REAL_CAN                    // set by the *_can environments in platformio.ini
+const bool SIMULATE_CAN_DATA  = false;
+#else
+const bool SIMULATE_CAN_DATA  = true;  // feed random values instead of real CAN data
+#endif
 
 static_assert(SIMULATE_CAN_DATA || GAUGE.can_id != 0,
               "This gauge has no CAN signal defined yet; add it in gauge_config.h or enable simulation");
@@ -64,7 +70,6 @@ void init_scale_labels(void) {
 
 // CONTROL VARIABLE INIT
 bool receiving_data           = false; // has the first data been received
-volatile bool data_ready      = false; // new incoming data
 bool init_anim_complete       = false; // needle sweep completed
 bool status_led               = false; // flashing LED for CAN activity
 
@@ -109,12 +114,13 @@ static void set_needle_img_value(void * obj, int32_t v) {
 void update_scale(void) {
   // use a moving average of the last x values for smoothing
   int averaged_value = get_moving_average(GaugeData.scale_value);
+  if (averaged_value == previous_scale_value) return; // needle is already there
 
   lv_anim_t anim;
   lv_anim_init(&anim);
   lv_anim_set_var(&anim, scale); // 'scale' is your needle object
   lv_anim_set_values(&anim, previous_scale_value, averaged_value);
-  lv_anim_set_time(&anim, 100); // 100ms duration
+  lv_anim_set_time(&anim, GAUGE_UPDATE_MS);
   lv_anim_set_exec_cb(&anim, (lv_anim_exec_xcb_t)set_needle_img_value);
   lv_anim_start(&anim);
 
@@ -247,20 +253,28 @@ void main_scr_ui(void) {
 
   // fluid icon, colored per gauge type
   lv_color_t icon_color = lv_color_make(GAUGE.icon_red, GAUGE.icon_green, GAUGE.icon_blue);
-  lv_obj_t *gauge_icon = lv_label_create(main_scr);
-  lv_label_set_text(gauge_icon, LV_SYMBOL_TINT);
-  lv_obj_set_style_text_font(gauge_icon, &lv_font_montserrat_32, 0);
-  lv_obj_set_style_text_color(gauge_icon, icon_color, 0);
-  lv_obj_set_style_transform_scale_x(gauge_icon, (int32_t)(LV_SCALE_NONE * 3.0f), 0);
-  lv_obj_set_style_transform_scale_y(gauge_icon, (int32_t)(LV_SCALE_NONE * 3.0f), 0);
-  // scaling pivots around the transform origin, which defaults to the object's
-  // top-left corner rather than its center - pin it to center so zooming
-  // doesn't visually drift the icon away from LV_ALIGN_CENTER
-  lv_obj_set_style_transform_pivot_x(gauge_icon, lv_pct(50), 0);
-  lv_obj_set_style_transform_pivot_y(gauge_icon, lv_pct(50), 0);
+  lv_obj_t *gauge_icon;
+  if (GAUGE.icon != nullptr) {
+    gauge_icon = lv_image_create(main_scr);
+    lv_image_set_src(gauge_icon, GAUGE.icon);
+    lv_obj_set_style_image_recolor(gauge_icon, icon_color, 0);
+    lv_obj_set_style_image_recolor_opa(gauge_icon, LV_OPA_COVER, 0);
+  } else {
+    gauge_icon = lv_label_create(main_scr);
+    lv_label_set_text(gauge_icon, LV_SYMBOL_TINT);
+    lv_obj_set_style_text_font(gauge_icon, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(gauge_icon, icon_color, 0);
+    lv_obj_set_style_transform_scale_x(gauge_icon, (int32_t)(LV_SCALE_NONE * 3.0f), 0);
+    lv_obj_set_style_transform_scale_y(gauge_icon, (int32_t)(LV_SCALE_NONE * 3.0f), 0);
+    // scaling pivots around the transform origin, which defaults to the object's
+    // top-left corner rather than its center - pin it to center so zooming
+    // doesn't visually drift the icon away from LV_ALIGN_CENTER
+    lv_obj_set_style_transform_pivot_x(gauge_icon, lv_pct(50), 0);
+    lv_obj_set_style_transform_pivot_y(gauge_icon, lv_pct(50), 0);
+  }
   lv_obj_align(gauge_icon, LV_ALIGN_CENTER, 0, 0);
 
-  // caption below the icon, since the gauges share the same droplet glyph
+  // caption below the icon
   lv_obj_t *caption = lv_label_create(main_scr);
   lv_label_set_text(caption, GAUGE.caption);
   lv_obj_set_style_text_font(caption, &lv_font_montserrat_32, 0);
@@ -299,17 +313,12 @@ void receive_can_task(void *arg) {
 
 void process_can_queue_task(void *arg) {
   twai_message_t message;
-  int last_value = GaugeData.scale_value;
   while (1) {
     if (xQueueReceive(canMsgQueue, &message, pdMS_TO_TICKS(1)) == pdPASS) {
       if (GAUGE.decode != nullptr && message.identifier == GAUGE.can_id) {
         GaugeData.scale_value = GAUGE.decode(message.data);
-        if (GaugeData.scale_value != last_value) {
-          data_ready = true;
-          last_value = GaugeData.scale_value;
-        }
+        receiving_data = true;
       }
-      receiving_data = true;
     }
     vTaskDelay(pdMS_TO_TICKS(1));
   }
@@ -338,10 +347,7 @@ void simulate_can_task(void *arg) {
     if (current < GAUGE.min_value) current = GAUGE.min_value;
     if (current > GAUGE.max_value) current = GAUGE.max_value;
 
-    if (current != GaugeData.scale_value) {
-      GaugeData.scale_value = current;
-      data_ready = true;
-    }
+    GaugeData.scale_value = current;
     receiving_data = true;
 
     vTaskDelay(pdMS_TO_TICKS(200));
@@ -375,9 +381,13 @@ void setup(void) {
 }
 
 void loop(void) {
+  static uint32_t last_update_ms = 0;
+
   lv_timer_handler();
-  if (data_ready) {
-    data_ready = false;
+  // sample at a fixed rate, not only when the reading changes, so the moving
+  // average settles on a steady value
+  if (receiving_data && millis() - last_update_ms >= GAUGE_UPDATE_MS) {
+    last_update_ms = millis();
     update_values();
   }
   vTaskDelay(pdMS_TO_TICKS(1));
