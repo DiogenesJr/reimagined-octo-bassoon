@@ -253,20 +253,28 @@ void main_scr_ui(void) {
 
   // fluid icon, colored per gauge type
   lv_color_t icon_color = lv_color_make(GAUGE.icon_red, GAUGE.icon_green, GAUGE.icon_blue);
-  lv_obj_t *gauge_icon = lv_label_create(main_scr);
-  lv_label_set_text(gauge_icon, LV_SYMBOL_TINT);
-  lv_obj_set_style_text_font(gauge_icon, &lv_font_montserrat_32, 0);
-  lv_obj_set_style_text_color(gauge_icon, icon_color, 0);
-  lv_obj_set_style_transform_scale_x(gauge_icon, (int32_t)(LV_SCALE_NONE * 3.0f), 0);
-  lv_obj_set_style_transform_scale_y(gauge_icon, (int32_t)(LV_SCALE_NONE * 3.0f), 0);
-  // scaling pivots around the transform origin, which defaults to the object's
-  // top-left corner rather than its center - pin it to center so zooming
-  // doesn't visually drift the icon away from LV_ALIGN_CENTER
-  lv_obj_set_style_transform_pivot_x(gauge_icon, lv_pct(50), 0);
-  lv_obj_set_style_transform_pivot_y(gauge_icon, lv_pct(50), 0);
+  lv_obj_t *gauge_icon;
+  if (GAUGE.icon != nullptr) {
+    gauge_icon = lv_image_create(main_scr);
+    lv_image_set_src(gauge_icon, GAUGE.icon);
+    lv_obj_set_style_image_recolor(gauge_icon, icon_color, 0);
+    lv_obj_set_style_image_recolor_opa(gauge_icon, LV_OPA_COVER, 0);
+  } else {
+    gauge_icon = lv_label_create(main_scr);
+    lv_label_set_text(gauge_icon, LV_SYMBOL_TINT);
+    lv_obj_set_style_text_font(gauge_icon, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(gauge_icon, icon_color, 0);
+    lv_obj_set_style_transform_scale_x(gauge_icon, (int32_t)(LV_SCALE_NONE * 3.0f), 0);
+    lv_obj_set_style_transform_scale_y(gauge_icon, (int32_t)(LV_SCALE_NONE * 3.0f), 0);
+    // scaling pivots around the transform origin, which defaults to the object's
+    // top-left corner rather than its center - pin it to center so zooming
+    // doesn't visually drift the icon away from LV_ALIGN_CENTER
+    lv_obj_set_style_transform_pivot_x(gauge_icon, lv_pct(50), 0);
+    lv_obj_set_style_transform_pivot_y(gauge_icon, lv_pct(50), 0);
+  }
   lv_obj_align(gauge_icon, LV_ALIGN_CENTER, 0, 0);
 
-  // caption below the icon, since the gauges share the same droplet glyph
+  // caption below the icon
   lv_obj_t *caption = lv_label_create(main_scr);
   lv_label_set_text(caption, GAUGE.caption);
   lv_obj_set_style_text_font(caption, &lv_font_montserrat_32, 0);

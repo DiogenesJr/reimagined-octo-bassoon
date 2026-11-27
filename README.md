@@ -25,6 +25,17 @@ These environments run on simulated data. Add `_can` to the name (for example `o
 read the CAN bus instead. To send test messages from a PC, see
 [tools/can_sim](tools/can_sim/README.md).
 
+## Icons
+
+The coolant and oil temperature icons come from the PNGs in `icons/`; oil pressure uses a built-in
+droplet symbol. Draw them dark on a white or transparent background; the firmware keeps only the
+shape and tints it with the gauge color.
+After changing a PNG, regenerate the headers in `src/images/` (needs Python with Pillow):
+
+```
+python tools/convert_icons.py
+```
+
 ## Dependencies
 
 - **[PlatformIO Core](https://docs.platformio.org/en/latest/core/installation/index.html)** (CLI)
