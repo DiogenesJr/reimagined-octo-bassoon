@@ -41,6 +41,11 @@ void test_process_scale_value_can_go_negative(void) {
     TEST_ASSERT_EQUAL_INT(-30, process_scale_value(data));
 }
 
+void test_process_oil_pressure_value_reads_byte_zero_unsigned(void) {
+    uint8_t data[8] = {200, 99, 0, 0, 0, 0, 0, 0};
+    TEST_ASSERT_EQUAL_INT(200, process_oil_pressure_value(data));
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_moving_average_of_constant_value_converges_to_that_value_x10);
@@ -48,5 +53,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_moving_average_window_slides_after_ten_samples);
     RUN_TEST(test_process_scale_value_applies_nissan_minus_40_offset);
     RUN_TEST(test_process_scale_value_can_go_negative);
+    RUN_TEST(test_process_oil_pressure_value_reads_byte_zero_unsigned);
     return UNITY_END();
 }

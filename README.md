@@ -4,7 +4,7 @@ A PlatformIO project for the Ultimate Gauge Board by Garage Tinkering, running o
 with a round ST7701 display. It renders a gauge (styled after a Need for Speed Underground 2
 gauge), performs a needle sweep on boot, and then tracks a value pulled in over CAN.
 
-A compile-time simulation mode (`SIMULATE_CAN_DATA` in `src/main.cpp`, currently enabled) feeds
+A compile-time simulation mode (on unless the environment defines `USE_REAL_CAN`) feeds
 randomized readings instead, so the display can be exercised on the bench without a live CAN bus.
 
 ## Gauge types
@@ -12,13 +12,15 @@ randomized readings instead, so the display can be exercised on the bench withou
 Each gauge is its own PlatformIO environment. Their ranges, colors, captions and CAN settings are
 in `include/gauge_config.h`.
 
-| Environment              | Range        | Real CAN data        |
-|--------------------------|--------------|----------------------|
-| `coolant_temp` (default) | -20 to 140 C | ID `0x551`           |
-| `oil_temp`               | 0 to 160 C   | Not yet defined      |
-| `oil_pressure`           | 0 to 100 PSI | Not yet defined      |
+| Environment              | Range        | CAN ID                |
+|--------------------------|--------------|-----------------------|
+| `coolant_temp` (default) | -20 to 140 C | `0x551`               |
+| `oil_temp`               | 0 to 160 C   | `0x600` (placeholder) |
+| `oil_pressure`           | 0 to 100 PSI | `0x601` (placeholder) |
 
-Gauges without a CAN definition only build with simulation enabled.
+These environments run on simulated data. Add `_can` to the name (for example `oil_temp_can`) to
+read the CAN bus instead. The placeholder messages are for bench testing and won't match a real
+vehicle. To send test messages from a PC, see [tools/can_sim](tools/can_sim/README.md).
 
 ## Dependencies
 
@@ -69,6 +71,12 @@ pio run --target upload --upload-port COM5
 
 (substitute the correct port; on macOS/Linux this looks like `/dev/tty.usbserial-XXXX` instead of
 `COMx`).
+
+To check which gauge firmware a connected board has (Windows; this restarts the board):
+
+```
+powershell -File tools\identify_gauge.ps1
+```
 
 To watch serial output afterward (matches `monitor_speed = 115200` in `platformio.ini`):
 

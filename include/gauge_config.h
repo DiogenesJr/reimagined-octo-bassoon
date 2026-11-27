@@ -27,10 +27,12 @@ struct GaugeConfig {
 constexpr GaugeConfig GAUGE = {"COOLANT", -20, 140, 9, 30, 130, 210, 0x551, process_scale_value};
 #elif GAUGE_TYPE == GAUGE_OIL_TEMP
 // degrees C
-constexpr GaugeConfig GAUGE = {"OIL TEMP", 0, 160, 9, 191, 128, 0, 0, nullptr};
+// PLACEHOLDER CAN ID and format for bench testing, not from a real vehicle
+constexpr GaugeConfig GAUGE = {"OIL TEMP", 0, 160, 9, 191, 128, 0, 0x600, process_scale_value};
 #elif GAUGE_TYPE == GAUGE_OIL_PRESSURE
 // PSI
-constexpr GaugeConfig GAUGE = {"OIL PSI", 0, 100, 6, 220, 180, 40, 0, nullptr};
+// PLACEHOLDER CAN ID and format for bench testing, not from a real vehicle
+constexpr GaugeConfig GAUGE = {"OIL PSI", 0, 100, 6, 220, 180, 40, 0x601, process_oil_pressure_value};
 #else
   #error "Unknown GAUGE_TYPE"
 #endif

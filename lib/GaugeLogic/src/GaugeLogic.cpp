@@ -37,3 +37,8 @@ int process_scale_value(const uint8_t *byte_data) {
     int byte_pos = 0;
     return byte_data[byte_pos] - 40;
 }
+
+int process_oil_pressure_value(const uint8_t *byte_data) {
+    // byte 0 in whole PSI (placeholder format, see gauge_config.h)
+    return byte_data[0];
+}
